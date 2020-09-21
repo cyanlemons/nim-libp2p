@@ -24,3 +24,5 @@ import testtransport,
        testnoise,
        testpeerinfo,
        testmplex
+
+include ../libp2p/utils/semaphore
