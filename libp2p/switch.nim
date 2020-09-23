@@ -26,6 +26,7 @@ import stream/connection,
        peerinfo,
        protocols/identify,
        muxers/muxer,
+       utils/semaphore,
        connmanager,
        peerid,
        errors
@@ -44,6 +45,9 @@ logScope:
 declareCounter(libp2p_dialed_peers, "dialed peers")
 declareCounter(libp2p_failed_dials, "failed dials")
 declareCounter(libp2p_failed_upgrade, "peers failed upgrade")
+
+const
+  MaxConnections* = 100
 
 type
     UpgradeFailedError* = object of CatchableError
@@ -384,22 +388,12 @@ proc dial*(s: Switch,
     if not(isNil(stream)):
       await stream.closeWithEOF()
 
-    if not(isNil(conn)):
-      await conn.close()
-
-  try:
-    if isNil(stream):
-      await conn.close()
-      raise newException(DialFailedError, "Couldn't get muxed stream")
-
-    return await s.negotiateStream(stream, protos)
-  except CancelledError as exc:
-    trace "Dial canceled", conn
-    await cleanup()
     raise exc
   except CatchableError as exc:
-    debug "Error dialing", conn, msg = exc.msg
-    await cleanup()
+    debug "Error dialing", stream, msg = exc.msg
+    if not(isNil(stream)):
+      await stream.close()
+
     raise exc
 
 proc dial*(s: Switch,
@@ -496,9 +490,6 @@ proc muxerHandler(s: Switch, muxer: Muxer) {.async, gcsafe.} =
     await muxer.close()
     return
 
-  # store incoming connection
-  s.connManager.storeIncoming(conn)
-
   # store muxer and muxed connection
   s.connManager.storeMuxer(muxer)
 
@@ -533,11 +524,10 @@ proc newSwitch*(peerInfo: PeerInfo,
     peerInfo: peerInfo,
     ms: newMultistream(),
     transports: transports,
-    connManager: ConnManager.init(),
+    connManager: ConnManager.init(100),
     identity: identity,
     muxers: muxers,
-    secureManagers: @secureManagers,
-  )
+    secureManagers: @secureManagers)
 
   switch.streamHandler = proc(conn: Connection) {.async, gcsafe.} = # noraises
     trace "Starting stream handler", conn
