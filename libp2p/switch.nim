@@ -47,6 +47,9 @@ declareCounter(libp2p_dialed_peers, "dialed peers")
 declareCounter(libp2p_failed_dials, "failed dials")
 declareCounter(libp2p_failed_upgrade, "peers failed upgrade")
 
+const
+  MaxConnections* = 100
+
 type
     UpgradeFailedError* = object of CatchableError
     DialFailedError* = object of CatchableError
