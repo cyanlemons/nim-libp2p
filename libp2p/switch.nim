@@ -46,9 +46,6 @@ declareCounter(libp2p_dialed_peers, "dialed peers")
 declareCounter(libp2p_failed_dials, "failed dials")
 declareCounter(libp2p_failed_upgrade, "peers failed upgrade")
 
-const
-  MaxConnections* = 100
-
 type
     UpgradeFailedError* = object of CatchableError
     DialFailedError* = object of CatchableError
@@ -516,7 +513,8 @@ proc newSwitch*(peerInfo: PeerInfo,
                 transports: seq[Transport],
                 identity: Identify,
                 muxers: Table[string, MuxerProvider],
-                secureManagers: openarray[Secure] = []): Switch =
+                secureManagers: openarray[Secure] = [],
+                maxConns = MaxConnections): Switch =
   if secureManagers.len == 0:
     raise (ref CatchableError)(msg: "Provide at least one secure manager")
 
@@ -524,7 +522,7 @@ proc newSwitch*(peerInfo: PeerInfo,
     peerInfo: peerInfo,
     ms: newMultistream(),
     transports: transports,
-    connManager: ConnManager.init(100),
+    connManager: ConnManager.init(maxConns),
     identity: identity,
     muxers: muxers,
     secureManagers: @secureManagers)
