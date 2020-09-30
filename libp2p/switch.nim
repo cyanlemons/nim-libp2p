@@ -528,7 +528,8 @@ proc newSwitch*(peerInfo: PeerInfo,
                 identity: Identify,
                 muxers: Table[string, MuxerProvider],
                 secureManagers: openarray[Secure] = [],
-                maxConns = MaxConnections): Switch =
+                maxConns = MaxConnections,
+                maxPeerConns = MaxConnectionsPerPeer): Switch =
   if secureManagers.len == 0:
     raise (ref CatchableError)(msg: "Provide at least one secure manager")
 
@@ -536,7 +537,7 @@ proc newSwitch*(peerInfo: PeerInfo,
     peerInfo: peerInfo,
     ms: newMultistream(),
     transports: transports,
-    connManager: ConnManager.init(maxConns),
+    connManager: ConnManager.init(maxConns, maxPeerConns),
     identity: identity,
     muxers: muxers,
     secureManagers: @secureManagers)
