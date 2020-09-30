@@ -7,11 +7,12 @@
 ## This file may not be copied, modified, or distributed except according to
 ## those terms.
 
-import tables,
-       sequtils,
-       options,
-       sets,
-       oids
+import std/[tables,
+            sequtils,
+            options,
+            sets,
+            oids,
+            sugar]
 
 import chronos,
        chronicles,
@@ -209,6 +210,7 @@ proc upgradeOutgoing(s: Switch, conn: Connection): Future[Connection] {.async, g
     raise newException(UpgradeFailedError,
       "Connection closed or missing peer info, stopping upgrade")
 
+  s.connManager.updateConn(conn, sconn)
   trace "Upgraded outgoing connection", conn, sconn
 
   return sconn
@@ -418,12 +420,12 @@ proc accept(s: Switch, transport: Transport) {.async.} = # noraises
   while transport.running:
     var conn: Connection
     try:
-      debug "About to accept incoming connection"
-      conn = await transport.accept()
-      if not isNil(conn):
-        debug "Accepted an incoming connection", conn
-        asyncSpawn s.upgradeIncoming(conn) # perform upgrade on incoming connection
-      else:
+      trace "About to accept incoming connection"
+      conn = await s.connManager.trackIncomingConn(
+        () => transport.accept()
+      )
+      trace "Accepted an incoming connection", conn
+      if isNil(conn):
         # A nil connection means that we might have hit a
         # file-handle limit (or another non-fatal error),
         # we can get one on the next try, but we should
@@ -431,6 +433,18 @@ proc accept(s: Switch, transport: Transport) {.async.} = # noraises
         # will starve the main event loop, thus we sleep
         # here before retrying.
         await sleepAsync(100.millis) # TODO: should be configurable?
+        continue
+
+      trace "Accepted an incoming connection", conn
+      asyncSpawn s.upgradeIncoming(conn) # perform upgrade on incoming connection
+    except TransportClosedError as exc:
+      debug "Transport closed", exc = exc.msg
+      # TODO: closing should stop accept
+      break
+    except CancelledError as exc:
+      trace "Canceling accept loop"
+      # TODO: cancellation should stop accept
+      break
     except CatchableError as exc:
       debug "Exception in accept loop, exiting", exc = exc.msg
       if not isNil(conn):
