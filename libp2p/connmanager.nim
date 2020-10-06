@@ -373,7 +373,7 @@ proc selectMuxer*(c: ConnManager, peerId: PeerID): Muxer =
     muxer = c.selectMuxer(peerId, Direction.In)
 
   if isNil(muxer):
-    trace "muxer not found", peerId
+    trace "Muxer not found", peerId
 
   return muxer
 

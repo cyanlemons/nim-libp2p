@@ -34,7 +34,7 @@ proc acquire*(s: AsyncSemaphore): Future[void] =
     ## resource counter
     ##
     s.count.inc
-    trace "canceling and releasing semaphore slot", available = s.count,
+    trace "Canceling and releasing semaphore slot", available = s.count,
                                                     queue = s.queue.len
 
   if s.count > 0:
@@ -43,7 +43,7 @@ proc acquire*(s: AsyncSemaphore): Future[void] =
     s.queue.addLast(fut)
 
   s.count.dec
-  trace "acquired semaphore slot", available = s.count,
+  trace "Acquired semaphore slot", available = s.count,
                                    queue = s.queue.len
   return fut
 
@@ -70,14 +70,14 @@ proc release*(s: AsyncSemaphore) =
   while true:
     if s.queue.len > 0:
       var fut = s.queue.popFirst()
-      trace "releasing semaphore slot", available = s.count,
+      trace "Releasing semaphore slot", available = s.count,
                                         queue = s.queue.len
 
       # skip `canceled`, since the resource
       # count has been already adjusted in
       # the cancellation callback
       if fut.cancelled():
-        trace "canceled semaphore slot, skipping", available = s.count,
+        trace "Canceled semaphore slot, skipping", available = s.count,
                                                    queue = s.queue.len
         continue
 
@@ -85,7 +85,7 @@ proc release*(s: AsyncSemaphore) =
         fut.complete()
 
     s.count.inc # increment the result count
-    trace "released semaphore slot", available = s.count,
+    trace "Released semaphore slot", available = s.count,
                                      queue = s.queue.len
     return
 
