@@ -199,6 +199,8 @@ proc upgradeOutgoing(s: Switch, conn: Connection): Future[Connection] {.async, g
     raise newException(UpgradeFailedError,
       "current version of nim-libp2p requires that secure protocol negotiates peerid")
 
+  s.connManager.updateConn(conn, sconn)
+
   let muxer = await s.mux(sconn) # mux it if possible
   if muxer == nil:
     # TODO this might be relaxed in the future
@@ -210,7 +212,6 @@ proc upgradeOutgoing(s: Switch, conn: Connection): Future[Connection] {.async, g
     raise newException(UpgradeFailedError,
       "Connection closed or missing peer info, stopping upgrade")
 
-  s.connManager.updateConn(conn, sconn)
   trace "Upgraded outgoing connection", conn, sconn
 
   return sconn
