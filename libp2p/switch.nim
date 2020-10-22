@@ -199,8 +199,6 @@ proc upgradeOutgoing(s: Switch, conn: Connection): Future[Connection] {.async, g
     raise newException(UpgradeFailedError,
       "current version of nim-libp2p requires that secure protocol negotiates peerid")
 
-  s.connManager.updateConn(conn, sconn, true)
-
   let muxer = await s.mux(sconn) # mux it if possible
   if muxer == nil:
     # TODO this might be relaxed in the future
@@ -519,6 +517,9 @@ proc muxerHandler(s: Switch, muxer: Muxer) {.async, gcsafe.} =
     warn "This version of nim-libp2p requires secure protocol to negotiate peerid"
     await muxer.close()
     return
+
+  # store incoming connection
+  s.connManager.storeIncoming(conn)
 
   # store muxer and muxed connection
   s.connManager.storeMuxer(muxer)
