@@ -21,7 +21,7 @@ logScope:
 declareGauge(libp2p_peers, "total connected peers")
 
 const
-  MaxConnections* = 100
+  MaxConnections* = 50
   MaxConnectionsPerPeer* = 5
 
 type
@@ -66,9 +66,10 @@ type
     handle: Future[void]
 
   ConnManager* = ref object of RootObj
-    maxConns: int
     maxPeerConns: int
-    connSemaphore*: AsyncSemaphore
+    maxOutgoing: int
+    maxOutgoingCount: int
+    inConnSemaphore*: AsyncSemaphore
     conns: Table[PeerID, HashSet[Connection]]
     muxed: Table[Connection, MuxerHolder]
     connEvents: Table[ConnEventKind, OrderedSet[ConnEventHandler]]
@@ -78,12 +79,14 @@ proc newTooManyConnectionsError(): ref TooManyConnectionsError {.inline.} =
   result = newException(TooManyConnectionsError, "Too many connections")
 
 proc init*(C: type ConnManager,
-           maxConns: int = MaxConnections,
+           maxIncoming = MaxConnections,
+           maxOutgoing = MaxConnections,
            maxConnsPerPeer: int = MaxConnectionsPerPeer): ConnManager =
-  C(maxConns: maxConnsPerPeer,
+  C(maxPeerConns: maxConnsPerPeer,
     conns: initTable[PeerID, HashSet[Connection]](),
     muxed: initTable[Connection, MuxerHolder](),
-    connSemaphore: AsyncSemaphore.init(maxConns))
+    maxOutgoing: maxOutgoing,
+    inConnSemaphore: AsyncSemaphore.init(maxIncoming))
 
 proc connCount*(c: ConnManager, peerId: PeerID): int =
   c.conns.getOrDefault(peerId).len
@@ -336,8 +339,8 @@ proc storeConn*(c: ConnManager, conn: Connection) =
     raise newException(CatchableError, "empty peer info")
 
   let peerId = conn.peerInfo.peerId
-  if c.conns.getOrDefault(peerId).len > c.maxConns:
-    debug "Too many connections",
+  if c.conns.getOrDefault(peerId).len > c.maxPeerConns:
+    debug "Too many connections for peer",
       conn, conns = c.conns.getOrDefault(peerId).len
 
     raise newTooManyConnectionsError()
@@ -376,19 +379,20 @@ proc trackConn(c: ConnManager,
       except CatchableError as exc:
         trace "Exception in semaphore monitor, ignoring", exc = exc.msg
       finally:
-        c.connSemaphore.release()
+        if conn.dir == Direction.In:
+          c.inConnSemaphore.release()
+        else:
+          c.maxOutgoingCount.dec
 
     asyncSpawn semaphoreMonitor()
-
-    return conn
   except CatchableError as exc:
     trace "Exception tracking connection", exc = exc.msg
-
     if not isNil(conn):
       await conn.close()
 
-    c.connSemaphore.release()
     raise exc
+
+  return conn
 
 proc trackIncomingConn*(c: ConnManager,
                         provider: ConnProvider):
@@ -397,22 +401,40 @@ proc trackIncomingConn*(c: ConnManager,
   ## to call the connection provider
   ##
 
-  trace "Tracking incoming connection"
-  await c.connSemaphore.acquire()
-  return await c.trackConn(provider, Direction.In)
+  var conn: Connection
+  try:
+    trace "Tracking incoming connection"
+    await c.inConnSemaphore.acquire()
+    conn = await c.trackConn(provider, Direction.In)
+  except CatchableError as exc:
+    trace "Exception tracking connection", exc = exc.msg
+    c.inConnSemaphore.release()
+    raise exc
+
+  return conn
 
 proc trackOutgoingConn*(c: ConnManager,
-                        provider: ConnProvider): Future[Connection] =
+                        provider: ConnProvider):
+                        Future[Connection] {.async.} =
   ## try acquiring a connection if all slots
   ## are already taken, raise TooManyConnectionsError
   ## exception
   ##
 
-  trace "Tracking outgoing connection"
-  if not c.connSemaphore.tryAcquire():
-    raise newTooManyConnectionsError()
+  var conn: Connection
+  try:
+    trace "Tracking outgoing connection"
+    if c.maxOutgoingCount >= c.maxOutgoing:
+      raise newTooManyConnectionsError()
 
-  return c.trackConn(provider, Direction.Out)
+    c.maxOutgoingCount.inc
+    conn = await c.trackConn(provider, Direction.Out)
+  except CatchableError as exc:
+    trace "Exception tracking connection", exc = exc.msg
+    c.maxOutgoingCount.dec
+    raise exc
+
+  return conn
 
 proc storeOutgoing*(c: ConnManager, conn: Connection) =
   conn.dir = Direction.Out
