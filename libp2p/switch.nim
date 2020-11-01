@@ -47,6 +47,9 @@ declareCounter(libp2p_dialed_peers, "dialed peers")
 declareCounter(libp2p_failed_dials, "failed dials")
 declareCounter(libp2p_failed_upgrade, "peers failed upgrade")
 
+const
+  RequestTimeout = 10.seconds
+
 type
     UpgradeFailedError* = object of CatchableError
     DialFailedError* = object of CatchableError
@@ -249,7 +252,7 @@ proc upgradeIncoming(s: Switch, incomingConn: Connection) {.async, gcsafe.} = # 
     trace "Stopped secure handler", conn
 
   try:
-    if (await ms.select(incomingConn)): # just handshake
+    if (await ms.select(incomingConn).wait(RequestTimeout)): # just handshake
       # add the secure handlers
       for k in s.secureManagers:
         ms.addHandler(k.codec, securedHandler)
