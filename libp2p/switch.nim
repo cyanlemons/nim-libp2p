@@ -241,6 +241,9 @@ proc upgradeIncoming(s: Switch, incomingConn: Connection) {.async, gcsafe.} = # 
       if not isNil(sconn):
         await sconn.close()
 
+    if not isNil(sconn):
+      await sconn.close()
+
     trace "Stopped secure handler", conn
 
   try:
@@ -420,6 +423,7 @@ proc accept(s: Switch, transport: Transport) {.async.} = # noraises
   ## transport's accept loop
   ##
 
+  var conn: Connection
   while transport.running:
     var conn: Connection
     try:
@@ -442,6 +446,9 @@ proc accept(s: Switch, transport: Transport) {.async.} = # noraises
         await conn.close()
 
       return
+
+  if not isNil(conn):
+    await conn.close()
 
 proc start*(s: Switch): Future[seq[Future[void]]] {.async, gcsafe.} =
   trace "starting switch for peer", peerInfo = s.peerInfo
