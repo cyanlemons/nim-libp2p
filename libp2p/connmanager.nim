@@ -19,7 +19,7 @@ logScope:
 
 declareGauge(libp2p_peers, "total connected peers")
 
-const MaxConnectionsPerPeer = 5
+const MaxConnectionsPerPeer = 2
 
 type
   TooManyConnections* = object of CatchableError
