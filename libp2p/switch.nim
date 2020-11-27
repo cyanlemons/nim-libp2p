@@ -12,7 +12,8 @@ import std/[tables,
             options,
             sets,
             oids,
-            sugar]
+            sugar,
+            math]
 
 import chronos,
        chronicles,
@@ -556,17 +557,30 @@ proc newSwitch*(peerInfo: PeerInfo,
                 identity: Identify,
                 muxers: Table[string, MuxerProvider],
                 secureManagers: openarray[Secure] = [],
-                maxIn = MaxConnections,
-                maxOut = MaxConnections,
+                maxConnections = MaxConnections,
+                maxIn = -1,
+                maxOut = -1,
                 maxPeerConns = MaxConnectionsPerPeer): Switch =
   if secureManagers.len == 0:
     raise (ref CatchableError)(msg: "Provide at least one secure manager")
+
+  var
+    maxInConns = maxIn
+    maxOutConns = maxOut
+
+  if maxConnections > 0 and
+    (maxInConns < 0 and maxOutConns < 0):
+    maxInConns = floor(maxConnections / 2).int
+    maxOutConns = ceil(maxConnections / 2).int
+
+  doAssert(maxInConns > 0 and maxOutConns > 0,
+    "Either maxConnections or both maxIn and maxOut should be > 0")
 
   let switch = Switch(
     peerInfo: peerInfo,
     ms: newMultistream(),
     transports: transports,
-    connManager: ConnManager.init(maxIn, maxOut, maxPeerConns),
+    connManager: ConnManager.init(maxInConns, maxOutConns, maxPeerConns),
     identity: identity,
     muxers: muxers,
     secureManagers: @secureManagers)
