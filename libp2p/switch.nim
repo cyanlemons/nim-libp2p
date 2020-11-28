@@ -276,7 +276,14 @@ proc dialAndUpgrade(s: Switch,
       if t.handles(a):   # check if it can dial it
         trace "Dialing address", address = $a, peerId
         let dialed = try:
-            await t.dial(a)
+            # await a connection slot when the total
+            # connection count is equal to `maxConns`
+            await s.connManager.trackOutgoingConn(
+              () => t.dial(a)
+            )
+          except TooManyConnectionsError as exc:
+            trace "Connection limit reached!"
+            raise exc
           except CancelledError as exc:
             debug "Dialing canceled", msg = exc.msg, peerId
             raise exc
