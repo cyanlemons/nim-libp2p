@@ -48,9 +48,6 @@ declareCounter(libp2p_dialed_peers, "dialed peers")
 declareCounter(libp2p_failed_dials, "failed dials")
 declareCounter(libp2p_failed_upgrade, "peers failed upgrade")
 
-const
-  RequestTimeout* = 10.seconds
-
 type
     UpgradeFailedError* = object of CatchableError
     DialFailedError* = object of CatchableError
@@ -253,7 +250,7 @@ proc upgradeIncoming(s: Switch, incomingConn: Connection) {.async, gcsafe.} = # 
     trace "Stopped secure handler", conn
 
   try:
-    if (await ms.select(incomingConn).wait(RequestTimeout)): # just handshake
+    if (await ms.select(incomingConn)): # just handshake
       # add the secure handlers
       for k in s.secureManagers:
         ms.addHandler(k.codec, securedHandler)
@@ -451,7 +448,6 @@ proc accept(s: Switch, transport: Transport) {.async.} = # noraises
 
   var conn: Connection
   while transport.running:
-    var conn: Connection
     try:
       trace "About to accept incoming connection"
       conn = await s.connManager.trackIncomingConn(
@@ -480,10 +476,7 @@ proc accept(s: Switch, transport: Transport) {.async.} = # noraises
       break
     except CatchableError as exc:
       debug "Exception in accept loop, exiting", exc = exc.msg
-      if not isNil(conn):
-        await conn.close()
-
-      return
+      break
 
   if not isNil(conn):
     await conn.close()
