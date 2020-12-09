@@ -49,7 +49,7 @@ declareCounter(libp2p_failed_dials, "failed dials")
 declareCounter(libp2p_failed_upgrade, "peers failed upgrade")
 
 const
-  RequestTimeout = 10.seconds
+  RequestTimeout* = 10.seconds
 
 type
     UpgradeFailedError* = object of CatchableError
