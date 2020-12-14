@@ -187,6 +187,11 @@ jobs:
       #       choco install msys2
       #       pacman -S mingw-w64-x86_64-gmp
 
+      - name: Install p2pd
+        shell: bash
+        run: |
+          scripts/build_p2pd.sh p2pdCache v0.3.0
+
       - name: Run nim-libp2p tests
         shell: bash
         run: |
