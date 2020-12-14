@@ -28,13 +28,13 @@ jobs:
         include:
           - target:
               os: linux
-              builder: ubuntu-18.04
+            builder: ubuntu-18.04
           - target:
               os: macos
-              builder: macos-10.15
+            builder: macos-10.15
           - target:
               os: windows
-              builder: windows-2019
+            builder: windows-2019
     name: '${{ matrix.target.os }}-${{ matrix.target.cpu }} (${{ matrix.branch }})'
     runs-on: ${{ matrix.builder }}
     steps:
