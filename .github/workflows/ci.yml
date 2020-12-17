@@ -192,7 +192,7 @@ jobs:
         run: |
           export PATH="$GOPATH/bin:$PATH"
           export UCPU="$cpu"
-          bash scripts/build_p2pd.sh p2pdCache v0.3.0
+          V=1 bash scripts/build_p2pd.sh p2pdCache v0.3.0
           cd nim-libp2p
           nimble install -y --depsOnly
           nimble test
