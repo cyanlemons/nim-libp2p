@@ -191,7 +191,7 @@ jobs:
         shell: bash
         run: |
           cd nim-libp2p
-          scripts/build_p2pd.sh p2pdCache v0.3.0
+          bash scripts/build_p2pd.sh p2pdCache v0.3.0
 
       - name: Run nim-libp2p tests
         shell: bash
