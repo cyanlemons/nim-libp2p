@@ -79,7 +79,7 @@ build_target() {
 	go install ./...
 
 	# record the last commit's timestamp
-	git log --pretty=format:%cd -n 1 ${GIT_TIMESTAMP_ARG} > "${TARGET_DIR}/timestamp"
+	# git log --pretty=format:%cd -n 1 ${GIT_TIMESTAMP_ARG} > "${TARGET_DIR}/timestamp"
 
 	popd
 
