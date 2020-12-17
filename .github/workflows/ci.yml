@@ -191,6 +191,7 @@ jobs:
         shell: bash
         run: |
           cd nim-libp2p
+          export PATH="$GOPATH/bin:$PATH"
           bash scripts/build_p2pd.sh p2pdCache v0.3.0
 
       - name: Run nim-libp2p tests
