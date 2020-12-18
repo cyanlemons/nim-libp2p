@@ -7,7 +7,7 @@
 ## This file may not be copied, modified, or distributed except according to
 ## those terms.
 
-import std/[tables, sequtils, sets]
+import std/[tables, sequtils, sets, strutils]
 import chronos, chronicles, metrics
 import pubsubpeer,
        rpc/[message, messages],
@@ -16,7 +16,8 @@ import pubsubpeer,
        ../../stream/connection,
        ../../peerid,
        ../../peerinfo,
-       ../../errors
+       ../../errors,
+       ../../utility
 
 import metrics
 import stew/results
@@ -29,16 +30,37 @@ export protocol
 logScope:
   topics = "libp2p pubsub"
 
+const
+  KnownLibP2PTopics* {.strdefine.} = ""
+  KnownLibP2PTopicsSeq* = KnownLibP2PTopics.toLowerAscii().split(",")
+
 declareGauge(libp2p_pubsub_peers, "pubsub peer instances")
 declareGauge(libp2p_pubsub_topics, "pubsub subscribed topics")
+
 declareCounter(libp2p_pubsub_validation_success, "pubsub successfully validated messages")
 declareCounter(libp2p_pubsub_validation_failure, "pubsub failed validated messages")
 declareCounter(libp2p_pubsub_validation_ignore, "pubsub ignore validated messages")
-when defined(libp2p_expensive_metrics):
-  declarePublicCounter(libp2p_pubsub_messages_published, "published messages", labels = ["topic"])
-else:
-  declarePublicCounter(libp2p_pubsub_messages_published, "published messages")
-declarePublicCounter(libp2p_pubsub_messages_rebroadcasted, "re-broadcasted messages")
+
+declarePublicCounter(libp2p_pubsub_messages_published, "published messages", labels = ["topic"])
+declarePublicCounter(libp2p_pubsub_messages_rebroadcasted, "re-broadcasted messages", labels = ["topic"])
+
+declarePublicCounter(libp2p_pubsub_broadcast_subscriptions, "pubsub broadcast subscriptions", labels = ["topic"])
+declarePublicCounter(libp2p_pubsub_broadcast_messages, "pubsub broadcast messages", labels = ["topic"])
+
+declarePublicCounter(libp2p_pubsub_received_subscriptions, "pubsub broadcast subscriptions", labels = ["topic"])
+declarePublicCounter(libp2p_pubsub_received_messages, "pubsub broadcast messages", labels = ["topic"])
+
+declarePublicCounter(libp2p_pubsub_broadcast_iwant, "pubsub broadcast iwant")
+
+declarePublicCounter(libp2p_pubsub_broadcast_ihave, "pubsub broadcast ihave", labels = ["topic"])
+declarePublicCounter(libp2p_pubsub_broadcast_graft, "pubsub broadcast graft", labels = ["topic"])
+declarePublicCounter(libp2p_pubsub_broadcast_prune, "pubsub broadcast prune", labels = ["topic"])
+
+declarePublicCounter(libp2p_pubsub_received_iwant, "pubsub broadcast iwant")
+
+declarePublicCounter(libp2p_pubsub_received_ihave, "pubsub broadcast ihave", labels = ["topic"])
+declarePublicCounter(libp2p_pubsub_received_graft, "pubsub broadcast graft", labels = ["topic"])
+declarePublicCounter(libp2p_pubsub_received_prune, "pubsub broadcast prune", labels = ["topic"])
 
 type
   TopicHandler* = proc(topic: string,
@@ -97,6 +119,40 @@ proc broadcast*(
   sendPeers: openArray[PubSubPeer],
   msg: RPCMsg) = # raises: [Defect]
   ## Attempt to send `msg` to the given peers
+  
+  let npeers = sendPeers.len.int64
+  for sub in msg.subscriptions:
+    if KnownLibP2PTopicsSeq.contains(sub.topic):
+      libp2p_pubsub_broadcast_subscriptions.inc(npeers, labelValues = [sub.topic])
+    else:
+      libp2p_pubsub_broadcast_subscriptions.inc(npeers, labelValues = ["generic"])
+
+  for smsg in msg.messages:
+    for topic in smsg.topicIDs:
+      if KnownLibP2PTopicsSeq.contains(topic):
+        libp2p_pubsub_broadcast_messages.inc(npeers, labelValues = [topic])
+      else:
+        libp2p_pubsub_broadcast_messages.inc(npeers, labelValues = ["generic"])
+  
+  if msg.control.isSome():
+    libp2p_pubsub_broadcast_iwant.inc(npeers * msg.control.get().iwant.len.int64)
+
+    let control = msg.control.get()
+    for ihave in control.ihave:
+      if KnownLibP2PTopicsSeq.contains(ihave.topicID):
+        libp2p_pubsub_broadcast_ihave.inc(npeers, labelValues = [ihave.topicID])
+      else:
+        libp2p_pubsub_broadcast_ihave.inc(npeers, labelValues = ["generic"])
+    for graft in control.graft:
+      if KnownLibP2PTopicsSeq.contains(graft.topicID):
+        libp2p_pubsub_broadcast_graft.inc(npeers, labelValues = [graft.topicID])
+      else:
+        libp2p_pubsub_broadcast_graft.inc(npeers, labelValues = ["generic"])
+    for prune in control.prune:
+      if KnownLibP2PTopicsSeq.contains(prune.topicID):
+        libp2p_pubsub_broadcast_prune.inc(npeers, labelValues = [prune.topicID])
+      else:
+        libp2p_pubsub_broadcast_prune.inc(npeers, labelValues = ["generic"])
 
   trace "broadcasting messages to peers",
     peers = sendPeers.len, msg = shortLog(msg)
@@ -109,6 +165,11 @@ proc sendSubs*(p: PubSub,
                subscribe: bool) =
   ## send subscriptions to remote peer
   p.send(peer, RPCMsg.withSubs(topics, subscribe))
+  for topic in topics:
+    if KnownLibP2PTopicsSeq.contains(topic):
+      libp2p_pubsub_broadcast_subscriptions.inc(labelValues = [topic])
+    else:
+      libp2p_pubsub_broadcast_subscriptions.inc(labelValues = ["generic"])
 
 method subscribeTopic*(p: PubSub,
                        topic: string,
@@ -125,6 +186,39 @@ method rpcHandler*(p: PubSub,
   for s in rpcMsg.subscriptions: # subscribe/unsubscribe the peer for each topic
     trace "about to subscribe to topic", topicId = s.topic, peer
     p.subscribeTopic(s.topic, s.subscribe, peer)
+
+  for sub in rpcMsg.subscriptions:
+    if KnownLibP2PTopicsSeq.contains(sub.topic):
+      libp2p_pubsub_received_subscriptions.inc(labelValues = [sub.topic])
+    else:
+      libp2p_pubsub_received_subscriptions.inc(labelValues = ["generic"])
+
+  for smsg in rpcMsg.messages:
+    for topic in smsg.topicIDs:
+      if KnownLibP2PTopicsSeq.contains(topic):
+        libp2p_pubsub_received_messages.inc(labelValues = [topic])
+      else:
+        libp2p_pubsub_received_messages.inc(labelValues = ["generic"])
+
+  if rpcMsg.control.isSome():
+    libp2p_pubsub_received_iwant.inc(rpcMsg.control.get().iwant.len.int64)
+
+    let control = rpcMsg.control.get()
+    for ihave in control.ihave:
+      if KnownLibP2PTopicsSeq.contains(ihave.topicID):
+        libp2p_pubsub_received_ihave.inc(labelValues = [ihave.topicID])
+      else:
+        libp2p_pubsub_received_ihave.inc(labelValues = ["generic"])
+    for graft in control.graft:
+      if KnownLibP2PTopicsSeq.contains(graft.topicID):
+        libp2p_pubsub_received_graft.inc(labelValues = [graft.topicID])
+      else:
+        libp2p_pubsub_received_graft.inc(labelValues = ["generic"])
+    for prune in control.prune:
+      if KnownLibP2PTopicsSeq.contains(prune.topicID):
+        libp2p_pubsub_received_prune.inc(labelValues = [prune.topicID])
+      else:
+        libp2p_pubsub_received_prune.inc(labelValues = ["generic"])
 
 method onNewPeer(p: PubSub, peer: PubSubPeer) {.base.} = discard
 
