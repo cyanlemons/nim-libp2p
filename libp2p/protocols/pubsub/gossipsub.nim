@@ -447,7 +447,7 @@ proc rebalanceMesh(g: GossipSub, topic: string, metrics: bool) =
   var
     prunes, grafts: seq[PubSubPeer]
     npeers = g.mesh.peers(topic)
-  
+
   if npeers  < g.parameters.dLow:
     if metrics:
       inc g.underDlowTopics
@@ -493,7 +493,7 @@ proc rebalanceMesh(g: GossipSub, topic: string, metrics: bool) =
     meshPeers.keepIf do (x: PubSubPeer) -> bool: x.outbound
     if meshPeers.len < g.parameters.dOut:
       if metrics:
-        inc g.underDoutTopics 
+        inc g.underDoutTopics
 
       trace "replenishing mesh outbound quota", peers = g.mesh.peers(topic)
 
@@ -676,7 +676,7 @@ proc getGossipPeers(g: GossipSub): Table[PubSubPeer, ControlMessage] {.gcsafe.} 
       continue
 
     var midsSeq = toSeq(mids)
-    
+
     libp2p_gossipsub_cache_window_size.inc(midsSeq.len.int64)
 
     # not in spec
@@ -748,7 +748,7 @@ proc updateScores(g: GossipSub) = # avoid async
     let peer = g.peers.getOrDefault(peerId)
     if isNil(peer):
       continue
-    
+
     trace "updating peer score", peer
     var n_topics = 0
     var is_grafted = 0
@@ -847,7 +847,7 @@ proc updateScores(g: GossipSub) = # avoid async
             peer.shortAgent
           else:
             let connections = peer.connections.filterIt(
-              not isNil(it.peerInfo) and 
+              not isNil(it.peerInfo) and
               it.peerInfo.agentVersion.len > 0
             )
             if connections.len > 0:
@@ -988,14 +988,14 @@ method subscribeTopic*(g: GossipSub,
     peer
     topic
 
-  # this is a workaround for a race condition 
+  # this is a workaround for a race condition
   # that can happen if we disconnect the peer very early
-  # in the future we might use this as a test case 
+  # in the future we might use this as a test case
   # and eventually remove this workaround
   if subscribe and peer.peerId notin g.peers:
     trace "ignoring unknown peer"
     return
-  
+
   # Skip floodsub - we don't want it to add the peer to `g.floodsub`
   procCall PubSub(g).subscribeTopic(topic, subscribe, peer)
 
@@ -1289,7 +1289,7 @@ method rpcHandler*(g: GossipSub,
     if respControl.graft.len > 0 or respControl.prune.len > 0 or
       respControl.ihave.len > 0 or messages.len > 0:
       # iwant and prunes from here, also messages
-      
+
       for smsg in messages:
         for topic in smsg.topicIDs:
           if KnownLibP2PTopicsSeq.contains(topic):
@@ -1309,8 +1309,8 @@ method rpcHandler*(g: GossipSub,
 
 method subscribe*(g: GossipSub,
                   topic: string,
-                  handler: TopicHandler) {.async.} =
-  await procCall PubSub(g).subscribe(topic, handler)
+                  handler: TopicHandler) =
+  procCall PubSub(g).subscribe(topic, handler)
 
   # if we have a fanout on this topic break it
   if topic in g.fanout:
@@ -1318,42 +1318,45 @@ method subscribe*(g: GossipSub,
 
   g.rebalanceMesh(topic, metrics = false)
 
+method unsubscribeAll*(g: GossipSub, topic: string) =
+  var
+    msg = RPCMsg.withSubs(@[topic], subscribe = false)
+    gpeers = g.gossipsub.getOrDefault(topic)
+
+  if topic in g.mesh:
+    let mpeers = g.mesh.getOrDefault(topic)
+
+    # remove mesh peers from gpeers, we send 2 different messages
+    gpeers = gpeers - mpeers
+    # send to peers NOT in mesh first
+    g.broadcast(toSeq(gpeers), msg)
+
+    g.mesh.del(topic)
+
+    for peer in mpeers:
+      trace "pruning unsubscribeAll call peer", peer, score = peer.score
+      g.pruned(peer, topic)
+
+    msg.control =
+      some(ControlMessage(prune:
+        @[ControlPrune(topicID: topic,
+          peers: g.peerExchangeList(topic),
+          backoff: g.parameters.pruneBackoff.seconds.uint64)]))
+
+    # send to peers IN mesh now
+    g.broadcast(toSeq(mpeers), msg)
+  else:
+    g.broadcast(toSeq(gpeers), msg)
+
 method unsubscribe*(g: GossipSub,
-                    topics: seq[TopicPair]) {.async.} =
-  await procCall PubSub(g).unsubscribe(topics)
+                    topics: seq[TopicPair]) =
+  procCall PubSub(g).unsubscribe(topics)
 
   for (topic, handler) in topics:
     # delete from mesh only if no handlers are left
+    # (handlers are remove in pubsub unsubscribe)
     if topic notin g.topics:
-      if topic in g.mesh:
-        let peers = g.mesh[topic]
-        g.mesh.del(topic)
-        g.topicParams.del(topic)
-        for peer in peers:
-          trace "pruning unsubscribe call peer", peer, score = peer.score
-          g.pruned(peer, topic)
-        let prune = RPCMsg(control: some(ControlMessage(
-          prune: @[ControlPrune(
-            topicID: topic,
-            peers: g.peerExchangeList(topic),
-            backoff: g.parameters.pruneBackoff.seconds.uint64)])))
-        g.broadcast(toSeq(peers), prune)
-
-method unsubscribeAll*(g: GossipSub, topic: string) {.async.} =
-  await procCall FloodSub(g).unsubscribeAll(topic)
-
-  if topic in g.mesh:
-    let peers = g.mesh.getOrDefault(topic)
-    g.mesh.del(topic)
-    for peer in peers:
-      trace "pruning unsubscribeAll call peer", peer, score = peer.score
-      g.pruned(peer, topic)
-    let prune = RPCMsg(control: some(ControlMessage(
-      prune: @[ControlPrune(
-        topicID: topic,
-        peers: g.peerExchangeList(topic),
-        backoff: g.parameters.pruneBackoff.seconds.uint64)])))
-    g.broadcast(toSeq(peers), prune)
+      g.unsubscribeAll(topic)
 
 method publish*(g: GossipSub,
                 topic: string,
@@ -1430,7 +1433,7 @@ method publish*(g: GossipSub,
     libp2p_pubsub_messages_published.inc(peerSeq.len.int64, labelValues = [topic])
   else:
     libp2p_pubsub_messages_published.inc(peerSeq.len.int64, labelValues = ["generic"])
-  
+
   trace "Published message to peers"
 
   return peers.len
